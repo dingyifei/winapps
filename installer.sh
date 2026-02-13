@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+PLATFORM="$(uname -s)"
 
 MAKEDEMO=0
 USEDEMO=0
@@ -28,6 +29,12 @@ function waInstall() {
 }
 
 function waFindInstalled() {
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		echo "  Auto-detection not available on macOS. You'll select apps manually."
+		ls "${DIR}/apps" > "${HOME}/.local/share/winapps/installed"
+		echo " Finished."
+		return
+	fi
 	echo -n "  Checking for installed apps in RDP machine (this may take a while)..."
 	if [ $USEDEMO != 1 ]; then
 		rm -f ${HOME}/.local/share/winapps/installed.bat
@@ -78,8 +85,9 @@ function waConfigureApp() {
 		. "${SYS_PATH}/apps/${1}/info"
 		echo -n "  Configuring ${NAME}..."
 		if [ ${USEDEMO} != 1 ]; then
-			${SUDO} rm -f "${APP_PATH}/${1}.desktop"
-			echo "[Desktop Entry]
+			if [ "${PLATFORM}" != "Darwin" ]; then
+				${SUDO} rm -f "${APP_PATH}/${1}.desktop"
+				echo "[Desktop Entry]
 Name=${NAME}
 Exec=${BIN_PATH}/winapps ${1} %F
 Terminal=false
@@ -90,6 +98,7 @@ Comment=${FULL_NAME}
 Categories=${CATEGORIES}
 MimeType=${MIME_TYPES}
 " |${SUDO} tee "${APP_PATH}/${1}.desktop" > /dev/null
+			fi
 			${SUDO} rm -f "${BIN_PATH}/${1}"
 			echo "#!/usr/bin/env bash
 ${BIN_PATH}/winapps ${1} $@
@@ -137,7 +146,11 @@ function waConfigureApps() {
 
 function waConfigureDetectedApps() {
 	if [ -f "${HOME}/.local/share/winapps/detected" ]; then
-		sed -i 's/\r//g' "${HOME}/.local/share/winapps/detected"
+		if [ "${PLATFORM}" = "Darwin" ]; then
+			sed -i '' 's/\r//g' "${HOME}/.local/share/winapps/detected"
+		else
+			sed -i 's/\r//g' "${HOME}/.local/share/winapps/detected"
+		fi
 		. "${HOME}/.local/share/winapps/detected"
 		APPS=()
 		for I in "${!NAMES[@]}"; do
@@ -209,10 +222,11 @@ MIME_TYPES=\"\"
 function waConfigureWindows() {
 	echo -n "  Configuring Windows..."
 	if [ ${USEDEMO} != 1 ]; then
-		${SUDO} rm -f "${APP_PATH}/windows.desktop"
 		${SUDO} mkdir -p "${SYS_PATH}/icons"
 		${SUDO} cp "${DIR}/icons/windows.svg" "${SYS_PATH}/icons/windows.svg"
-		echo "[Desktop Entry]
+		if [ "${PLATFORM}" != "Darwin" ]; then
+			${SUDO} rm -f "${APP_PATH}/windows.desktop"
+			echo "[Desktop Entry]
 Name=Windows
 Exec=${BIN_PATH}/winapps windows %F
 Terminal=false
@@ -222,10 +236,11 @@ StartupWMClass=Micorosoft Windows
 Comment=Micorosoft Windows
 Categories=Windows
 " |${SUDO} tee "${APP_PATH}/windows.desktop" > /dev/null
+		fi
 		${SUDO} rm -f "${BIN_PATH}/windows"
 		echo "#!/usr/bin/env bash
 ${BIN_PATH}/winapps windows
-" |${SUDO} tee "/${BIN_PATH}/windows" > /dev/null
+" |${SUDO} tee "${BIN_PATH}/windows" > /dev/null
 		${SUDO} chmod a+x "${BIN_PATH}/windows"
 	fi
 	echo " Finished."
@@ -234,11 +249,13 @@ ${BIN_PATH}/winapps windows
 function waUninstallUser() {
 	rm -f "${HOME}/.local/bin/winapps"
 	rm -rf "${HOME}/.local/share/winapps"
-	for F in $(grep -l -d skip "bin/winapps" "${HOME}/.local/share/applications/"*); do
-		echo -n "  Removing ${F}..."
-		${SUDO} rm ${F}
-		echo " Finished."
-	done
+	if [ "${PLATFORM}" != "Darwin" ]; then
+		for F in $(grep -l -d skip "bin/winapps" "${HOME}/.local/share/applications/"*); do
+			echo -n "  Removing ${F}..."
+			${SUDO} rm ${F}
+			echo " Finished."
+		done
+	fi
 	for F in $(grep -l -d skip "bin/winapps" "${HOME}/.local/bin/"*); do
 		echo -n "  Removing ${F}..."
 		${SUDO} rm ${F}
@@ -249,14 +266,16 @@ function waUninstallUser() {
 function waUninstallSystem() {
 	${SUDO} rm -f "/usr/local/bin/winapps"
 	${SUDO} rm -rf "/usr/local/share/winapps"
-	for F in $(grep -l -d skip "bin/winapps" "/usr/share/applications/"*); do
-		if [ -z "${SUDO}" ]; then
-			waNoSudo
-		fi
-		echo -n "  Removing ${F}..."
-		${SUDO} rm ${F}
-		echo " Finished."
-	done
+	if [ "${PLATFORM}" != "Darwin" ]; then
+		for F in $(grep -l -d skip "bin/winapps" "/usr/share/applications/"*); do
+			if [ -z "${SUDO}" ]; then
+				waNoSudo
+			fi
+			echo -n "  Removing ${F}..."
+			${SUDO} rm ${F}
+			echo " Finished."
+		done
+	fi
 	for F in $(grep -l -d skip "bin/winapps" "/usr/local/bin/"*); do
 		if [ -z "${SUDO}" ]; then
 			waNoSudo

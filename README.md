@@ -1,6 +1,6 @@
-# WinApps for Linux
+# WinApps for Linux and macOS
 
-Run Windows apps such as Microsoft Office/Adobe in Linux (Ubuntu/Fedora) and GNOME/KDE as if they were a part of the native OS, including Nautilus integration for right clicking on files of specific mime types to open them.
+Run Windows apps such as Microsoft Office/Adobe in Linux (Ubuntu/Fedora) and macOS as if they were a part of the native OS. On Linux, includes GNOME/KDE integration and Nautilus right-click support. On macOS, uses Microsoft "Windows App" (free) as the RDP client.
 
 <img src="demo/demo.gif" width=1000>
 
@@ -79,6 +79,31 @@ Note: The officially configured application list below is fueled by the communit
     <td>&nbsp;</td><td>&nbsp;</td>
   </tr>
 </table>
+
+## macOS Support
+
+WinApps now runs on macOS. Instead of FreeRDP, it generates `.rdp` files and opens them with Microsoft "Windows App" (free from the Mac App Store).
+
+### Quick Start (macOS)
+
+```bash
+# Install via Homebrew
+brew tap dingyifei/winapps
+brew install winapps
+
+# Configure
+mkdir -p ~/.config/winapps
+# Edit ~/.config/winapps/winapps.conf with RDP_IP, RDP_USER, RDP_PASS
+
+# Test
+winapps check
+
+# Launch apps
+winapps word
+winapps excel ~/Documents/report.xlsx
+```
+
+See [docs/macOS.md](docs/macOS.md) for full setup instructions.
 
 ## Documentation
 

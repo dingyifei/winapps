@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 
+DIR="$(cd "$(dirname "$0")" && pwd -P)"
+PLATFORM="$(uname -s)"
+
+if [ "${1}" = "--help" ] || [ "${1}" = "-h" ]; then
+	echo "Usage: winapps [command] [file]"
+	echo ""
+	echo "Commands:"
+	echo "  windows      Full Windows desktop session"
+	echo "  check        Test RDP connectivity"
+	echo "  manual EXE   Launch a specific Windows executable"
+	echo "  APP          Launch a pre-configured app (e.g., word, excel)"
+	echo "  APP FILE     Launch app and open a file"
+	exit 0
+fi
+
 if [ ! -f "${HOME}/.config/winapps/winapps.conf" ] && [ ! -f "${HOME}/.winapps" ]; then
 	echo "You need to create a ~/.config/winapps/winapps.conf configuration. Exiting..."
 	exit
 fi
-
-DIR="$(dirname "$(readlink -f "$0")")"
 RUN="$(date)-${RANDOM}"
 
 if [ ! -d "${HOME}/.local/share/winapps" ]; then
@@ -26,13 +39,51 @@ function dprint() {
 	fi
 }
 
+function generate_rdp() {
+	# $1 = mode: "desktop" or "remoteapp"
+	# $2 = app name (for remoteapp)
+	# $3 = win executable (for remoteapp)
+	# $4 = app cmdline (for remoteapp, optional)
+	local RDP_DIR="${TMPDIR:-/tmp}/winapps-rdp"
+	mkdir -p "${RDP_DIR}"
+	local RDP_FILE="${RDP_DIR}/${2:-desktop}-$$.rdp"
+	{
+		echo "full address:s:${RDP_IP}"
+		echo "username:s:${RDP_USER}"
+		echo "domain:s:${RDP_DOMAIN}"
+		echo "drivestoredirect:s:*"
+		echo "redirectclipboard:i:1"
+		echo "autoreconnection enabled:i:1"
+		if [ "${1}" = "remoteapp" ]; then
+			echo "remoteapplicationmode:i:1"
+			echo "remoteapplicationprogram:s:${3}"
+			echo "remoteapplicationname:s:${2}"
+			echo "remoteapplicationcmdline:s:${4}"
+			echo "disableremoteappcapscheck:i:1"
+		else
+			echo "desktopwidth:i:1920"
+			echo "desktopheight:i:1080"
+			echo "smart sizing:i:1"
+		fi
+	} > "${RDP_FILE}"
+	echo "${RDP_FILE}"
+}
+
 dprint "START"
 
 if [ -f "${HOME}/.local/share/winapps/run" ]; then
-	LAST_RAN=$(stat -t -c %Y "${HOME}/.local/share/winapps/run")
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		LAST_RAN=$(stat -f %m "${HOME}/.local/share/winapps/run")
+	else
+		LAST_RAN=$(stat -t -c %Y "${HOME}/.local/share/winapps/run")
+	fi
 	dprint "LAST_RAN:${LAST_RAN}"
 	touch "${HOME}/.local/share/winapps/run"
-	THIS_RUN=$(stat -t -c %Y "${HOME}/.local/share/winapps/run")
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		THIS_RUN=$(stat -f %m "${HOME}/.local/share/winapps/run")
+	else
+		THIS_RUN=$(stat -t -c %Y "${HOME}/.local/share/winapps/run")
+	fi
 	dprint "THIS_RUN:${THIS_RUN}"
 	if (( $THIS_RUN - $LAST_RAN < 2 )); then
 		exit
@@ -41,13 +92,19 @@ else
 	touch "${HOME}/.local/share/winapps/run"
 fi
 
-if [ -z "$(which xfreerdp)" ]; then
-	echo "You need xfreerdp!"
-	echo "  sudo apt-get install -y freerdp2-x11"
-	exit
+if [ "${PLATFORM}" != "Darwin" ]; then
+	if [ -z "$(which xfreerdp)" ]; then
+		echo "You need xfreerdp!"
+		echo "  sudo apt-get install -y freerdp2-x11"
+		exit
+	fi
 fi
 
 if [ -z "${RDP_IP}" ]; then
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		echo "RDP_IP is not set. On macOS, set RDP_IP in ~/.config/winapps/winapps.conf"
+		exit 1
+	fi
 	if [ -z "$(groups |grep libvirt)" ]; then
 		echo "You are not a member of the libvirt group. Run the below then reboot."
 		echo '  sudo usermod -a -G libvirt $(whoami)'
@@ -73,13 +130,28 @@ if [ "${MULTIMON}" = "true" ]; then
 fi
 
 if [ "${1}" = "windows" ]; then
-	xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} /scale:${RDP_SCALE} /dynamic-resolution +clipboard +auto-reconnect +home-drive /wm-class:"Microsoft Windows" 1> /dev/null 2>&1 &
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		RDP_FILE=$(generate_rdp "desktop")
+		open "${RDP_FILE}"
+	else
+		xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} /scale:${RDP_SCALE} /dynamic-resolution +clipboard +auto-reconnect +home-drive /wm-class:"Microsoft Windows" 1> /dev/null 2>&1 &
+	fi
 elif [ "${1}" = "check" ]; then
 	dprint "CHECK"
-	xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +clipboard +home-drive -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /app:"explorer.exe"
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		RDP_FILE=$(generate_rdp "remoteapp" "Check" "explorer.exe")
+		open "${RDP_FILE}"
+	else
+		xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +clipboard +home-drive -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /app:"explorer.exe"
+	fi
 elif [ "${1}" = "manual" ]; then
 	dprint "MANUAL:${2}"
-	xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +home-drive +clipboard -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /app:"${2}" 1> /dev/null 2>&1 &
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		RDP_FILE=$(generate_rdp "remoteapp" "Manual" "${2}")
+		open "${RDP_FILE}"
+	else
+		xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +home-drive +clipboard -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /app:"${2}" 1> /dev/null 2>&1 &
+	fi
 elif [ "${1}" != "install" ]; then
 	dprint "DIR:${DIR}"
 	if [ -e "${DIR}/../apps/${1}/info" ]; then
@@ -91,17 +163,30 @@ elif [ "${1}" != "install" ]; then
 	elif [ -e "/usr/local/share/winapps/apps/${1}/info" ]; then
 		. "/usr/local/share/winapps/apps/${1}/info"
 		ICON="/usr/local/share/winapps/apps/${1}/icon.svg"
+	elif [ "${PLATFORM}" = "Darwin" ] && [ -e "/opt/homebrew/share/winapps/apps/${1}/info" ]; then
+		. "/opt/homebrew/share/winapps/apps/${1}/info"
+		ICON="/opt/homebrew/share/winapps/apps/${1}/icon.svg"
 	else
-		echo "You need to run 'install.sh' first."
+		echo "You need to run 'installer.sh' first."
 		exit 1
 	fi
-	if [ -n "${2}" ]; then
-		dprint "HOME:${HOME}"
-		FILE=$(echo "${2}" | sed 's|'"${HOME}"'|\\\\tsclient\\home|;s|/|\\|g;s|\\|\\\\|g')
-		dprint "FILE:${FILE}"
-		xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +clipboard +home-drive -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /wm-class:"${FULL_NAME}" /app:"${WIN_EXECUTABLE}" /app-icon:"${ICON}" /app-cmd:"\"${FILE}\"" 1> /dev/null 2>&1 &
+	if [ "${PLATFORM}" = "Darwin" ]; then
+		APP_CMD=""
+		if [ -n "${2}" ]; then
+			FILE=$(echo "${2}" | sed 's|'"${HOME}"'|\\\\tsclient\\home|;s|/|\\|g')
+			APP_CMD="\"${FILE}\""
+		fi
+		RDP_FILE=$(generate_rdp "remoteapp" "${FULL_NAME}" "${WIN_EXECUTABLE}" "${APP_CMD}")
+		open "${RDP_FILE}"
 	else
-		xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +clipboard +home-drive -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /wm-class:"${FULL_NAME}" /app:"${WIN_EXECUTABLE}" /app-icon:"${ICON}" 1> /dev/null 2>&1 &
+		if [ -n "${2}" ]; then
+			dprint "HOME:${HOME}"
+			FILE=$(echo "${2}" | sed 's|'"${HOME}"'|\\\\tsclient\\home|;s|/|\\|g;s|\\|\\\\|g')
+			dprint "FILE:${FILE}"
+			xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +clipboard +home-drive -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /wm-class:"${FULL_NAME}" /app:"${WIN_EXECUTABLE}" /app-icon:"${ICON}" /app-cmd:"\"${FILE}\"" 1> /dev/null 2>&1 &
+		else
+			xfreerdp ${RDP_FLAGS} /d:"${RDP_DOMAIN}" /u:"${RDP_USER}" /p:"${RDP_PASS}" /v:${RDP_IP} +auto-reconnect +clipboard +home-drive -wallpaper /scale:${RDP_SCALE} /dynamic-resolution /${MULTI_FLAG} /wm-class:"${FULL_NAME}" /app:"${WIN_EXECUTABLE}" /app-icon:"${ICON}" 1> /dev/null 2>&1 &
+		fi
 	fi
 fi
 
